@@ -1,85 +1,129 @@
-import telebot
+from telegram import Bot, Update
+from telegram.ext import Application, CommandHandler, CallbackContext
+import logging
+import pytz
+from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
-import time
+import asyncio
+import re
 
-# بيانات البوت
+# إعدادات البوت
 TOKEN = "7712506538:AAHgFTEg7_fuhq0sTN2dwZ88UFV1iQ6ycQ4"
 CHANNEL_ID = "@testbotseaf"
-bot = telebot.TeleBot(TOKEN)
+TIMEZONE = pytz.timezone("Asia/Riyadh")
 
-# رابط صفحة التقويم الاقتصادي
-ECONOMY_URL = "https://ar.fxstreet.com/economic-calendar"
+# إعداد السجلات لمراقبة الأخطاء
+logging.basicConfig(level=logging.INFO)
 
-# جلب البيانات الاقتصادية
-def get_economic_events():
-    today = datetime.now()
-    tomorrow = today + timedelta(days=1)
-    
-    # إرسال طلب لجلب صفحة التقويم
-    response = requests.get(ECONOMY_URL)
-    if response.status_code != 200:
-        print("Error fetching the page")
-        return []
-    
-    soup = BeautifulSoup(response.content, 'html.parser')
-    
-    # العثور على جدول الأحداث
-    events_table = soup.find_all('div', class_='calendar__event')
-
+# دالة لجلب الأحداث الاقتصادية بدون Selenium
+def fetch_economic_events():
+    url = "https://sa.investing.com/economic-calendar"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, "html.parser")
     events = []
-    for event in events_table:
-        title = event.find('span', class_='calendar__event-title').text.strip()
-        date_time = event.find('span', class_='calendar__date').text.strip()
-        impact = event.find('span', class_='calendar__impact').get('title', '').strip()
+    rows = soup.find_all("tr", class_="js-event-item")
+    
+    for row in rows:
+        try:
+            # جلب موعد الحدث
+            event_time = row.find("td", class_="first left time js-time")
+            if event_time:
+                event_time = event_time.text.strip()
+            else:
+                event_time = "غير محدد"
 
-        # إضافة الحدث فقط إذا كان له تأثير متوسط أو عالي
-        if 'متوسط' in impact or 'عالي' in impact:
-            events.append({
-                'title': title,
-                'date_time': date_time,
-                'impact': impact
-            })
+            # جلب اسم الحدث
+            event_name = row.find("td", class_="left event")
+            if event_name:
+                event_name = event_name.text.strip()
+            else:
+                event_name = "غير محدد"
 
+            # جلب البلد
+            event_country = row.find("td", class_="flagCur")
+            if event_country and "United_States" in event_country.get("class", []):
+                event_country = "الولايات المتحدة"
+            else:
+                event_country = "غير محدد"
+
+            # جلب التأثير
+            event_impact = row.find("td", class_="left textNum sentiment noWrap")
+            if event_impact:
+                event_impact = event_impact.text.strip()
+            else:
+                event_impact = "غير محدد"
+            
+            if "USA" in event_country:
+                event = {
+                    'time': event_time,
+                    'name': event_name,
+                    'country': event_country,
+                    'impact': event_impact
+                }
+                events.append(event)
+        except Exception as e:
+            logging.error(f"خطأ في جلب الحدث: {e}")
+            continue
+    
     return events
 
-# نشر الأحداث على القناة
-def post_events():
-    events = get_economic_events()
-    if events:
-        message = "أحداث اقتصادية هامة للغد:\n\n"
-        for event in events:
-            # تحويل التاريخ والوقت إلى صيغة قابلة للمقارنة
-            event_time = datetime.strptime(event['date_time'], "%d %b %Y %H:%M")
-            time_to_event = event_time - datetime.now()
+# دالة لتحويل وقت الحدث إلى كائن datetime
+def parse_event_time(event_time):
+    # محاولة استخدام التنسيق 12 ساعة AM/PM
+    try:
+        return datetime.strptime(event_time, "%I:%M %p")
+    except ValueError:
+        pass
+    # محاولة استخدام التنسيق 24 ساعة
+    try:
+        return datetime.strptime(event_time, "%H:%M")
+    except ValueError:
+        pass
+    return None
 
-            # نشر الحدث قبل 15 دقيقة من بدايته
-            if time_to_event > timedelta(minutes=15):  # تأكد من وجود 15 دقيقة بين الوقت الحالي ووقت الحدث
-                message += f"• {event['title']} في الساعة {event_time.strftime('%H:%M')} بتوقيت الولايات المتحدة\n"
+# دالة لإرسال الأحداث إلى قناة تيليجرام
+async def send_event_to_channel(bot: Bot, event):
+    message = f"\U0001F4C5 الحدث: {event['name']}\n⏰ التوقيت: {event['time']}\n\U0001F6A8 التأثير: {event['impact']}\n"
+    await bot.send_message(chat_id=CHANNEL_ID, text=message)
 
-        if message != "أحداث اقتصادية هامة للغد:\n\n":
-            bot.send_message(CHANNEL_ID, message)
-        else:
-            print("No events found to post.")
-    else:
-        print("No events to fetch.")
+# دالة تشغيل البوت وإرسال الأحداث عند التشغيل
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text("✅ تم تشغيل البوت بنجاح! سيتم إرسال الأحداث الاقتصادية تلقائيًا.")
+    bot = context.bot
+    events = fetch_economic_events()
+    for event in events:
+        await send_event_to_channel(bot, event)
 
-# وظيفة بدء البوت
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.send_message(message.chat.id, "البوت بدأ بالعمل... سوف يتم نشر الأحداث الاقتصادية قريبًا.")
-
-# وظيفة تحديث أحداث التقويم يوميًا
-def schedule_daily_post():
+# جدولة إرسال الأحداث قبل 15 دقيقة من موعدها
+async def schedule_events(bot: Bot):
     while True:
-        now = datetime.now()
-        if now.hour == 0 and now.minute == 0:  # كل يوم في منتصف الليل
-            print("Posting events for the day.")
-            post_events()
-        time.sleep(60)  # تحقق كل دقيقة
+        events = fetch_economic_events()
+        now = datetime.now(TIMEZONE)
+        for event in events:
+            try:
+                event_time = parse_event_time(event['time'])
+                if event_time:
+                    event_time = event_time.replace(year=now.year, month=now.month, day=now.day)
+                    time_diff = event_time - timedelta(minutes=15)
+                    if now >= time_diff and now <= event_time:
+                        await send_event_to_channel(bot, event)
+                else:
+                    logging.warning(f"التنسيق غير صالح للوقت: {event['time']}")
+            except Exception as e:
+                logging.error(f"خطأ في جدولة الحدث: {e}")
+        await asyncio.sleep(60)  # التحقق كل دقيقة
 
 # تشغيل البوت
-if __name__ == '__main__':
-    bot.send_message(CHANNEL_ID, "البوت بدأ بالعمل.")
-    schedule_daily_post()
+async def main():
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    bot = Bot(TOKEN)
+    asyncio.create_task(schedule_events(bot))
+    print("✅ البوت يعمل بنجاح!")
+    await application.run_polling()
+
+# استخدام run_polling مباشرة
+if __name__ == "__main__":
+    asyncio.run(main())  # استخدم run مع await
