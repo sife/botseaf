@@ -1,5 +1,6 @@
 import telebot
 import requests
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import time
 
@@ -8,34 +9,40 @@ TOKEN = "7712506538:AAHgFTEg7_fuhq0sTN2dwZ88UFV1iQ6ycQ4"
 CHANNEL_ID = "@testbotseaf"
 bot = telebot.TeleBot(TOKEN)
 
-# رابط API للتقويم الاقتصادي
-ECONOMY_API_URL = "https://api.investing.com/api/financialcalendar"
-HEADERS = {
-    "Content-Type": "application/json",
-}
+# رابط صفحة التقويم الاقتصادي
+ECONOMY_URL = "https://ar.fxstreet.com/economic-calendar"
 
 # جلب البيانات الاقتصادية
 def get_economic_events():
     today = datetime.now()
     tomorrow = today + timedelta(days=1)
     
-    params = {
-        "country": "US",  # فقط الأحداث الأمريكية
-        "impact": "2,3",  # التأثير المتوسط (2) والعالي (3)
-        "from_date": today.strftime('%Y-%m-%d'),
-        "to_date": tomorrow.strftime('%Y-%m-%d'),
-        "lang": "ar",  # اللغة العربية
-    }
-    
-    try:
-        response = requests.get(ECONOMY_API_URL, headers=HEADERS, params=params)
-        response.raise_for_status()  # للتأكد من عدم وجود خطأ في الطلب
-        events = response.json().get("events", [])
-        print(f"Received events: {events}")  # طباعة الأحداث للتحقق
-        return events
-    except requests.exceptions.RequestException as e:
-        print(f"Error while fetching events: {e}")
+    # إرسال طلب لجلب صفحة التقويم
+    response = requests.get(ECONOMY_URL)
+    if response.status_code != 200:
+        print("Error fetching the page")
         return []
+    
+    soup = BeautifulSoup(response.content, 'html.parser')
+    
+    # العثور على جدول الأحداث
+    events_table = soup.find_all('div', class_='calendar__event')
+
+    events = []
+    for event in events_table:
+        title = event.find('span', class_='calendar__event-title').text.strip()
+        date_time = event.find('span', class_='calendar__date').text.strip()
+        impact = event.find('span', class_='calendar__impact').get('title', '').strip()
+
+        # إضافة الحدث فقط إذا كان له تأثير متوسط أو عالي
+        if 'متوسط' in impact or 'عالي' in impact:
+            events.append({
+                'title': title,
+                'date_time': date_time,
+                'impact': impact
+            })
+
+    return events
 
 # نشر الأحداث على القناة
 def post_events():
@@ -43,7 +50,7 @@ def post_events():
     if events:
         message = "أحداث اقتصادية هامة للغد:\n\n"
         for event in events:
-            event_time = datetime.strptime(event['time'], "%Y-%m-%d %H:%M:%S")
+            event_time = datetime.strptime(event['date_time'], "%d %b %Y %H:%M")
             time_to_event = event_time - datetime.now()
 
             if time_to_event > timedelta(minutes=15):  # نشر الحدث قبل 15 دقيقة من بدايته
