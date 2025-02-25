@@ -122,11 +122,11 @@ async def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     bot = Bot(TOKEN)
-    loop = asyncio.get_running_loop()  # استخدام get_running_loop بدلاً من get_event_loop
+    loop = asyncio.get_event_loop()  # استخدام get_event_loop
     loop.create_task(schedule_events(bot))  # إنشاء المهمة هنا
     logging.info("✅ البوت يعمل بنجاح!")
-    await application.run_polling()
+    await application.run_polling()  # بدء العمل مع البوت
 
 # استخدام run_polling مباشرة
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
