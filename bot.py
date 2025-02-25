@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import asyncio
-import re
+import os
 
 # إعدادات البوت
 TOKEN = "7712506538:AAHgFTEg7_fuhq0sTN2dwZ88UFV1iQ6ycQ4"
@@ -69,37 +69,29 @@ def fetch_economic_events():
     
     return events
 
-# دالة لتحويل وقت الحدث إلى كائن datetime
-def parse_event_time(event_time):
-    # محاولة استخدام التنسيق 12 ساعة AM/PM
+# دالة لتحليل الوقت من تنسيق الحدث
+def parse_event_time(event_time_str):
     try:
-        return datetime.strptime(event_time, "%I:%M %p")
-    except ValueError:
-        pass
-    # محاولة استخدام التنسيق 24 ساعة
-    try:
-        return datetime.strptime(event_time, "%H:%M")
-    except ValueError:
-        pass
-    return None
+        event_time = datetime.strptime(event_time_str, "%I:%M %p")
+        return event_time
+    except Exception as e:
+        logging.warning(f"التنسيق غير صالح للوقت: {event_time_str} - {e}")
+        return None
 
 # دالة لإرسال الأحداث إلى قناة تيليجرام
 async def send_event_to_channel(bot: Bot, event):
-    message = f"\U0001F4C5 الحدث: {event['name']}\n⏰ التوقيت: {event['time']}\n\U0001F6A8 التأثير: {event['impact']}\n"
-    await bot.send_message(chat_id=CHANNEL_ID, text=message)
+    try:
+        message = f"\U0001F4C5 الحدث: {event['name']}\n⏰ التوقيت: {event['time']}\n\U0001F6A8 التأثير: {event['impact']}\n"
+        await bot.send_message(chat_id=CHANNEL_ID, text=message)
+        logging.info(f"تم إرسال الحدث: {event['name']} إلى القناة")
+    except Exception as e:
+        logging.error(f"خطأ في إرسال الحدث {event['name']}: {e}")
 
-# دالة تشغيل البوت وإرسال الأحداث عند التشغيل
-async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text("✅ تم تشغيل البوت بنجاح! سيتم إرسال الأحداث الاقتصادية تلقائيًا.")
-    bot = context.bot
-    events = fetch_economic_events()
-    for event in events:
-        await send_event_to_channel(bot, event)
-
-# جدولة إرسال الأحداث قبل 15 دقيقة من موعدها
+# دالة جدولة إرسال الأحداث قبل 15 دقيقة من موعدها
 async def schedule_events(bot: Bot):
     while True:
         events = fetch_economic_events()
+        logging.info(f"تم جلب {len(events)} حدثًا اقتصاديًا")
         now = datetime.now(TIMEZONE)
         for event in events:
             try:
@@ -108,6 +100,7 @@ async def schedule_events(bot: Bot):
                     event_time = event_time.replace(year=now.year, month=now.month, day=now.day)
                     time_diff = event_time - timedelta(minutes=15)
                     if now >= time_diff and now <= event_time:
+                        logging.info(f"إرسال الحدث: {event['name']} في التوقيت المحدد")
                         await send_event_to_channel(bot, event)
                 else:
                     logging.warning(f"التنسيق غير صالح للوقت: {event['time']}")
@@ -115,18 +108,25 @@ async def schedule_events(bot: Bot):
                 logging.error(f"خطأ في جدولة الحدث: {e}")
         await asyncio.sleep(60)  # التحقق كل دقيقة
 
-# تشغيل البوت بدون استخدام asyncio.run
-def main():
+# دالة تشغيل البوت وإرسال الأحداث عند التشغيل
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text("✅ تم تشغيل البوت بنجاح! سيتم إرسال الأحداث الاقتصادية تلقائيًا.")
+    bot = context.bot
+    events = fetch_economic_events()
+    logging.info(f"تم جلب {len(events)} حدثًا اقتصاديًا")
+    for event in events:
+        await send_event_to_channel(bot, event)
+
+# تشغيل البوت
+async def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     bot = Bot(TOKEN)
-    
-    # تأكد من وجود حلقة حدث قبل إنشاء المهام غير المتزامنة
-    loop = asyncio.get_event_loop()
-    loop.create_task(schedule_events(bot))  # إنشاء المهمة هنا بدلاً من استخدام asyncio.create_task
-    print("✅ البوت يعمل بنجاح!")
-    application.run_polling()
+    loop = asyncio.get_running_loop()  # استخدام get_running_loop بدلاً من get_event_loop
+    loop.create_task(schedule_events(bot))  # إنشاء المهمة هنا
+    logging.info("✅ البوت يعمل بنجاح!")
+    await application.run_polling()
 
-# بدء تشغيل البوت
+# استخدام run_polling مباشرة
 if __name__ == "__main__":
-    main()  # استخدم run_polling مباشرة
+    asyncio.run(main())
