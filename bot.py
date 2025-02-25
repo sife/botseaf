@@ -10,7 +10,7 @@ import os
 
 # إعدادات البوت
 TOKEN = "7712506538:AAHgFTEg7_fuhq0sTN2dwZ88UFV1iQ6ycQ4"
-CHANNEL_ID = "@testbotseaf"
+CHANNEL_ID = "@jordangold"
 TIMEZONE = pytz.timezone("Asia/Riyadh")
 
 # إعداد السجلات لمراقبة الأخطاء
