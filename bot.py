@@ -27,25 +27,29 @@ def fetch_economic_events():
     
     for row in rows:
         try:
-            event_time = row.find("td", class_="left time")
+            # جلب موعد الحدث
+            event_time = row.find("td", class_="first left time js-time")
             if event_time:
                 event_time = event_time.text.strip()
             else:
                 event_time = "غير محدد"
 
+            # جلب اسم الحدث
             event_name = row.find("td", class_="left event")
             if event_name:
                 event_name = event_name.text.strip()
             else:
                 event_name = "غير محدد"
 
+            # جلب البلد
             event_country = row.find("td", class_="flagCur")
-            if event_country:
-                event_country = event_country.text.strip()
+            if event_country and "United_States" in event_country.get("class", []):
+                event_country = "الولايات المتحدة"
             else:
                 event_country = "غير محدد"
 
-            event_impact = row.find("td", class_="sentiment")
+            # جلب التأثير
+            event_impact = row.find("td", class_="left textNum sentiment noWrap")
             if event_impact:
                 event_impact = event_impact.text.strip()
             else:
