@@ -106,6 +106,6 @@ async def main():
     print("✅ البوت يعمل بنجاح!")
     await application.run_polling()
 
+# استخدام run_polling مباشرة
 if __name__ == "__main__":
-    # استخدام run_polling مباشرة
-    asyncio.run(main())
+    main()
