@@ -27,10 +27,15 @@ def get_economic_events():
         "lang": "ar",  # اللغة العربية
     }
     
-    response = requests.get(ECONOMY_API_URL, headers=HEADERS, params=params)
-    events = response.json().get("events", [])
-    
-    return events
+    try:
+        response = requests.get(ECONOMY_API_URL, headers=HEADERS, params=params)
+        response.raise_for_status()  # للتأكد من عدم وجود خطأ في الطلب
+        events = response.json().get("events", [])
+        print(f"Received events: {events}")  # طباعة الأحداث للتحقق
+        return events
+    except requests.exceptions.RequestException as e:
+        print(f"Error while fetching events: {e}")
+        return []
 
 # نشر الأحداث على القناة
 def post_events():
@@ -46,8 +51,10 @@ def post_events():
 
         if message != "أحداث اقتصادية هامة للغد:\n\n":
             bot.send_message(CHANNEL_ID, message)
+        else:
+            print("No events found to post.")
     else:
-        bot.send_message(CHANNEL_ID, "لا توجد أحداث اقتصادية هامة للغد.")
+        print("No events to fetch.")
 
 # وظيفة بدء البوت
 @bot.message_handler(commands=['start'])
@@ -59,6 +66,7 @@ def schedule_daily_post():
     while True:
         now = datetime.now()
         if now.hour == 0 and now.minute == 0:  # كل يوم في منتصف الليل
+            print("Posting events for the day.")
             post_events()
         time.sleep(60)  # تحقق كل دقيقة
 
