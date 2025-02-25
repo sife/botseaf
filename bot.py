@@ -27,10 +27,29 @@ def fetch_economic_events():
     
     for row in rows:
         try:
-            event_time = row.find("td", class_="left time").text.strip()
-            event_name = row.find("td", class_="left event").text.strip()
-            event_country = row.find("td", class_="flagCur").text.strip()
-            event_impact = row.find("td", class_="sentiment").text.strip()
+            event_time = row.find("td", class_="left time")
+            if event_time:
+                event_time = event_time.text.strip()
+            else:
+                event_time = "غير محدد"
+
+            event_name = row.find("td", class_="left event")
+            if event_name:
+                event_name = event_name.text.strip()
+            else:
+                event_name = "غير محدد"
+
+            event_country = row.find("td", class_="flagCur")
+            if event_country:
+                event_country = event_country.text.strip()
+            else:
+                event_country = "غير محدد"
+
+            event_impact = row.find("td", class_="sentiment")
+            if event_impact:
+                event_impact = event_impact.text.strip()
+            else:
+                event_impact = "غير محدد"
             
             if "USA" in event_country:
                 event = {
@@ -84,4 +103,6 @@ async def main():
     await application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    loop.run_forever()
