@@ -115,15 +115,15 @@ async def schedule_events(bot: Bot):
                 logging.error(f"خطأ في جدولة الحدث: {e}")
         await asyncio.sleep(60)  # التحقق كل دقيقة
 
-# تشغيل البوت
-async def main():
+# تشغيل البوت بدون استخدام asyncio.run
+def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     bot = Bot(TOKEN)
     asyncio.create_task(schedule_events(bot))
     print("✅ البوت يعمل بنجاح!")
-    await application.run_polling()
+    application.run_polling()
 
-# استخدام run_polling مباشرة
+# بدء تشغيل البوت
 if __name__ == "__main__":
-    asyncio.run(main())  # استخدم run مع await
+    main()  # استخدم run_polling مباشرة
