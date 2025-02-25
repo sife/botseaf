@@ -120,7 +120,10 @@ def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     bot = Bot(TOKEN)
-    asyncio.create_task(schedule_events(bot))
+    
+    # تأكد من وجود حلقة حدث قبل إنشاء المهام غير المتزامنة
+    loop = asyncio.get_event_loop()
+    loop.create_task(schedule_events(bot))  # إنشاء المهمة هنا بدلاً من استخدام asyncio.create_task
     print("✅ البوت يعمل بنجاح!")
     application.run_polling()
 
