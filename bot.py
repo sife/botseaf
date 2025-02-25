@@ -108,4 +108,4 @@ async def main():
 
 # استخدام run_polling مباشرة
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())  # استخدم run مع await
