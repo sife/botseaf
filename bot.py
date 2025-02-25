@@ -3,10 +3,8 @@ from telegram.ext import Application, CommandHandler, CallbackContext
 import logging
 import pytz
 from datetime import datetime, timedelta
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+import requests
+from bs4 import BeautifulSoup
 import asyncio
 import os
 
@@ -18,27 +16,22 @@ TIMEZONE = pytz.timezone("Asia/Riyadh")
 # إعداد السجلات لمراقبة الأخطاء
 logging.basicConfig(level=logging.INFO)
 
-# إعداد Selenium ليعمل في بيئة Railway بشكل صحيح
+# دالة لجلب الأحداث الاقتصادية بدون Selenium
+
 def fetch_economic_events():
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")  # تشغيل بدون واجهة
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--remote-debugging-port=9222")
-    
-    service = Service("/usr/bin/chromedriver") if os.path.exists("/usr/bin/chromedriver") else Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    driver.get("https://sa.investing.com/economic-calendar")
-    
+    url = "https://sa.investing.com/economic-calendar"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, "html.parser")
     events = []
-    rows = driver.find_elements(By.CLASS_NAME, "js-event-item")
+    rows = soup.find_all("tr", class_="js-event-item")
     
     for row in rows:
         try:
-            event_time = row.find_element(By.CLASS_NAME, "left.time").text.strip()
-            event_name = row.find_element(By.CLASS_NAME, "left.event").text.strip()
-            event_country = row.find_element(By.CLASS_NAME, "flagCur").text.strip()
-            event_impact = row.find_element(By.CLASS_NAME, "sentiment").text.strip()
+            event_time = row.find("td", class_="left time").text.strip()
+            event_name = row.find("td", class_="left event").text.strip()
+            event_country = row.find("td", class_="flagCur").text.strip()
+            event_impact = row.find("td", class_="sentiment").text.strip()
             
             if "USA" in event_country:
                 event = {
@@ -51,7 +44,6 @@ def fetch_economic_events():
         except:
             continue
     
-    driver.quit()
     return events
 
 # دالة لإرسال الأحداث إلى قناة تيليجرام
@@ -92,4 +84,5 @@ async def main():
     await application.run_polling()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
