@@ -17,7 +17,6 @@ TIMEZONE = pytz.timezone("Asia/Riyadh")
 logging.basicConfig(level=logging.INFO)
 
 # دالة لجلب الأحداث الاقتصادية بدون Selenium
-
 def fetch_economic_events():
     url = "https://sa.investing.com/economic-calendar"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -41,7 +40,8 @@ def fetch_economic_events():
                     'impact': event_impact
                 }
                 events.append(event)
-        except:
+        except Exception as e:
+            logging.error(f"خطأ في جلب الحدث: {e}")
             continue
     
     return events
@@ -68,7 +68,7 @@ async def schedule_events(bot: Bot):
             try:
                 event_time = datetime.strptime(event['time'], "%I:%M %p").replace(year=now.year, month=now.month, day=now.day)
                 time_diff = event_time - timedelta(minutes=15)
-                if now >= time_diff:
+                if now >= time_diff and now <= event_time:
                     await send_event_to_channel(bot, event)
             except Exception as e:
                 logging.error(f"خطأ في جدولة الحدث: {e}")
