@@ -50,10 +50,12 @@ def post_events():
     if events:
         message = "أحداث اقتصادية هامة للغد:\n\n"
         for event in events:
+            # تحويل التاريخ والوقت إلى صيغة قابلة للمقارنة
             event_time = datetime.strptime(event['date_time'], "%d %b %Y %H:%M")
             time_to_event = event_time - datetime.now()
 
-            if time_to_event > timedelta(minutes=15):  # نشر الحدث قبل 15 دقيقة من بدايته
+            # نشر الحدث قبل 15 دقيقة من بدايته
+            if time_to_event > timedelta(minutes=15):  # تأكد من وجود 15 دقيقة بين الوقت الحالي ووقت الحدث
                 message += f"• {event['title']} في الساعة {event_time.strftime('%H:%M')} بتوقيت الولايات المتحدة\n"
 
         if message != "أحداث اقتصادية هامة للغد:\n\n":
