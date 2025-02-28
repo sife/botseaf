@@ -1,4 +1,3 @@
-import nest_asyncio
 from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 import logging
@@ -8,9 +7,6 @@ import requests
 from bs4 import BeautifulSoup
 import asyncio
 
-# ✅ إصلاح مشكلة event loop في بيئات مثل Railway
-nest_asyncio.apply()
-
 # إعدادات البوت
 TOKEN = "7712506538:AAHgFTEg7_fuhq0sTN2dwZ88UFV1iQ6ycQ4"
 CHANNEL_ID = "@jordangold"
@@ -19,49 +15,48 @@ TIMEZONE = pytz.timezone("Asia/Riyadh")
 # إعداد السجلات لمراقبة الأخطاء
 logging.basicConfig(level=logging.INFO)
 
-# دالة لجلب الأحداث الاقتصادية بدون Selenium
+# دالة لجلب الأحداث الاقتصادية مع تحسينات
+
 def fetch_economic_events():
     url = "https://sa.investing.com/economic-calendar"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
-    events = []
-    rows = soup.find_all("tr", class_="js-event-item")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ar-SA,ar;q=0.9,en;q=0.8",
+        "Referer": "https://www.google.com/"
+    }
     
-    for row in rows:
-        try:
-            event_time = row.find("td", class_="first left time js-time")
-            event_time = event_time.text.strip() if event_time else "غير محدد"
-
-            event_name = row.find("td", class_="left event")
-            event_name = event_name.text.strip() if event_name else "غير محدد"
-
-            event_country = row.find("td", class_="flagCur")
-            event_country = "الولايات المتحدة" if event_country and "United_States" in event_country.get("class", []) else "غير محدد"
-
-            event_impact = row.find("td", class_="left textNum sentiment noWrap")
-            event_impact = event_impact.text.strip() if event_impact else "غير محدد"
-            
-            if "USA" in event_country:
-                event = {
-                    'time': event_time,
-                    'name': event_name,
-                    'country': event_country,
-                    'impact': event_impact
-                }
-                events.append(event)
-        except Exception as e:
-            logging.error(f"خطأ في جلب الحدث: {e}")
-    
-    return events
-
-# دالة لتحليل الوقت من تنسيق الحدث
-def parse_event_time(event_time_str):
     try:
-        return datetime.strptime(event_time_str, "%I:%M %p")
-    except Exception as e:
-        logging.warning(f"التنسيق غير صالح للوقت: {event_time_str} - {e}")
-        return None
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # فحص الاستجابة
+        soup = BeautifulSoup(response.text, "html.parser")
+        events = []
+        rows = soup.find_all("tr", class_="js-event-item")
+
+        if not rows:
+            logging.warning("⚠️ لم يتم العثور على أي أحداث. قد يكون الموقع قد غير هيكله.")
+            return []
+
+        for row in rows:
+            try:
+                event_time = row.find("td", class_="first left time js-time").text.strip()
+                event_name = row.find("td", class_="left event").text.strip()
+                event_country = row.find("td", class_="flagCur").get("title", "غير معروف")
+                event_impact = row.find("td", class_="left textNum sentiment noWrap").text.strip()
+                
+                if "USA" in event_country or "الولايات المتحدة" in event_country:
+                    events.append({
+                        'time': event_time,
+                        'name': event_name,
+                        'country': event_country,
+                        'impact': event_impact
+                    })
+            except Exception as e:
+                logging.error(f"❌ خطأ في تحليل حدث: {e}")
+
+        return events
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ فشل الاتصال بـ Investing.com: {e}")
+        return []
 
 # دالة لإرسال الأحداث إلى قناة تيليجرام
 async def send_event_to_channel(bot: Bot, event):
@@ -80,41 +75,29 @@ async def schedule_events(bot: Bot):
         now = datetime.now(TIMEZONE)
         for event in events:
             try:
-                event_time = parse_event_time(event['time'])
-                if event_time:
-                    event_time = event_time.replace(year=now.year, month=now.month, day=now.day)
-                    time_diff = event_time - timedelta(minutes=15)
-                    if now >= time_diff and now <= event_time:
-                        logging.info(f"إرسال الحدث: {event['name']} في التوقيت المحدد")
-                        await send_event_to_channel(bot, event)
-                else:
-                    logging.warning(f"التنسيق غير صالح للوقت: {event['time']}")
+                event_time = datetime.strptime(event['time'], "%I:%M %p").replace(year=now.year, month=now.month, day=now.day)
+                time_diff = event_time - timedelta(minutes=15)
+                if now >= time_diff and now <= event_time:
+                    await send_event_to_channel(bot, event)
             except Exception as e:
                 logging.error(f"خطأ في جدولة الحدث: {e}")
         await asyncio.sleep(60)  # التحقق كل دقيقة
 
-# دالة تشغيل البوت وإرسال الأحداث عند التشغيل
+# دالة تشغيل البوت
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text("✅ تم تشغيل البوت بنجاح! سيتم إرسال الأحداث الاقتصادية تلقائيًا.")
     bot = context.bot
     events = fetch_economic_events()
-    logging.info(f"تم جلب {len(events)} حدثًا اقتصاديًا")
     for event in events:
         await send_event_to_channel(bot, event)
 
-# تشغيل البوت
 async def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-    
     bot = Bot(TOKEN)
-    
-    # تشغيل جدولة الأحداث في Task منفصلة
-    asyncio.create_task(schedule_events(bot))
-    
+    asyncio.create_task(schedule_events(bot))  # تجنب مشاكل event loop
     logging.info("✅ البوت يعمل بنجاح!")
     await application.run_polling()
 
-# ✅ تشغيل البوت بدون مشاكل `RuntimeError`
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+    asyncio.run(main())
