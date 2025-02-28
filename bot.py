@@ -1,3 +1,4 @@
+import nest_asyncio
 from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 import logging
@@ -6,6 +7,9 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import asyncio
+
+# ✅ إصلاح مشكلة event loop في بيئات مثل Railway
+nest_asyncio.apply()
 
 # إعدادات البوت
 TOKEN = "7712506538:AAHgFTEg7_fuhq0sTN2dwZ88UFV1iQ6ycQ4"
@@ -26,19 +30,15 @@ def fetch_economic_events():
     
     for row in rows:
         try:
-            # جلب موعد الحدث
             event_time = row.find("td", class_="first left time js-time")
             event_time = event_time.text.strip() if event_time else "غير محدد"
 
-            # جلب اسم الحدث
             event_name = row.find("td", class_="left event")
             event_name = event_name.text.strip() if event_name else "غير محدد"
 
-            # جلب البلد
             event_country = row.find("td", class_="flagCur")
             event_country = "الولايات المتحدة" if event_country and "United_States" in event_country.get("class", []) else "غير محدد"
 
-            # جلب التأثير
             event_impact = row.find("td", class_="left textNum sentiment noWrap")
             event_impact = event_impact.text.strip() if event_impact else "غير محدد"
             
@@ -115,6 +115,6 @@ async def main():
     logging.info("✅ البوت يعمل بنجاح!")
     await application.run_polling()
 
-# تشغيل البوت باستخدام asyncio.run
+# ✅ تشغيل البوت بدون مشاكل `RuntimeError`
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.get_event_loop().run_until_complete(main())
