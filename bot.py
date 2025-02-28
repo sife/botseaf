@@ -19,11 +19,7 @@ logging.basicConfig(level=logging.INFO)
 # دالة لجلب الأحداث الاقتصادية بدون Selenium
 def fetch_economic_events():
     url = "https://sa.investing.com/economic-calendar"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, مثل Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Referer": "https://sa.investing.com/"
-    }
-    
+    headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
     events = []
@@ -33,11 +29,17 @@ def fetch_economic_events():
         try:
             # جلب موعد الحدث
             event_time = row.find("td", class_="first left time js-time")
-            event_time = event_time.text.strip() if event_time else "غير محدد"
+            if event_time:
+                event_time = event_time.text.strip()
+            else:
+                event_time = "غير محدد"
 
             # جلب اسم الحدث
             event_name = row.find("td", class_="left event")
-            event_name = event_name.text.strip() if event_name else "غير محدد"
+            if event_name:
+                event_name = event_name.text.strip()
+            else:
+                event_name = "غير محدد"
 
             # جلب البلد
             event_country = row.find("td", class_="flagCur")
@@ -48,9 +50,12 @@ def fetch_economic_events():
 
             # جلب التأثير
             event_impact = row.find("td", class_="left textNum sentiment noWrap")
-            event_impact = event_impact.text.strip() if event_impact else "غير محدد"
+            if event_impact:
+                event_impact = event_impact.text.strip()
+            else:
+                event_impact = "غير محدد"
             
-            if "الولايات المتحدة" in event_country:
+            if "USA" in event_country:
                 event = {
                     'time': event_time,
                     'name': event_name,
@@ -88,7 +93,6 @@ async def schedule_events(bot: Bot):
         events = fetch_economic_events()
         logging.info(f"تم جلب {len(events)} حدثًا اقتصاديًا")
         now = datetime.now(TIMEZONE)
-        
         for event in events:
             try:
                 event_time = parse_event_time(event['time'])
@@ -102,7 +106,6 @@ async def schedule_events(bot: Bot):
                     logging.warning(f"التنسيق غير صالح للوقت: {event['time']}")
             except Exception as e:
                 logging.error(f"خطأ في جدولة الحدث: {e}")
-        
         await asyncio.sleep(60)  # التحقق كل دقيقة
 
 # دالة تشغيل البوت وإرسال الأحداث عند التشغيل
@@ -111,7 +114,6 @@ async def start(update: Update, context: CallbackContext):
     bot = context.bot
     events = fetch_economic_events()
     logging.info(f"تم جلب {len(events)} حدثًا اقتصاديًا")
-    
     for event in events:
         await send_event_to_channel(bot, event)
 
@@ -119,18 +121,12 @@ async def start(update: Update, context: CallbackContext):
 async def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-
     bot = Bot(TOKEN)
-
-    # تشغيل الجدولة في مهمة مستقلة
-    asyncio.create_task(schedule_events(bot))
-
+    loop = asyncio.get_event_loop()  # استخدام get_event_loop
+    loop.create_task(schedule_events(bot))  # إنشاء المهمة هنا
     logging.info("✅ البوت يعمل بنجاح!")
-    
-    # تشغيل الاستماع للأوامر
-    await application.run_polling()
+    await application.run_polling()  # بدء العمل مع البوت
 
-# استخدام الطريقة الصحيحة لتشغيل `asyncio`
+# استخدام run_polling مباشرة
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    main()
