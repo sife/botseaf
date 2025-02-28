@@ -130,8 +130,11 @@ async def main():
 # استخدام run_polling مباشرة
 if __name__ == "__main__":
     import asyncio
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        loop.create_task(main())  # تشغيل main() داخل الحلقة الحالية
-    else:
-        loop.run_until_complete(main())  # تشغيل main() إذا لم تكن هناك حلقة قيد التشغيل
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(main())  # تشغيل main() داخل الحلقة الحالية
