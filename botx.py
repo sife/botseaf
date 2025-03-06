@@ -1,122 +1,97 @@
-from telegram import Bot, Update
-from telegram.ext import Application, CommandHandler, CallbackContext
 import logging
-import pytz
-from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+import openai
 import requests
-from bs4 import BeautifulSoup
-import asyncio
-import os
+from alpha_vantage.foreignexchange import ForeignExchange
 
 # إعدادات البوت
-TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-CHANNEL_ID = "@jordangold"
-TIMEZONE = pytz.timezone("Asia/Riyadh")
+TOKEN = "8199102034:AAFcguhaf_J36XgM4avtO--pppKBZvEyX38"
+ALPHA_VANTAGE_API_KEY = "QOHNYLST38AYFCLD"
+NEWSAPI_API_KEY = "9707513d693d4eaeafd3e13b70b322ae"
 
-# إعداد السجلات لمراقبة الأخطاء
-logging.basicConfig(level=logging.INFO)
+openai.api_key = "YOUR_OPENAI_API_KEY"
 
-# دالة لجلب الأحداث الاقتصادية بدون Selenium
-def fetch_economic_events():
-    url = "https://sa.investing.com/economic-calendar"
-    headers = {"User-Agent": "Mozilla/5.0"}
+# تهيئة تسجيل الأخطاء
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+def start(update: Update, context: CallbackContext) -> None:
+    """الرد عند بدء المحادثة مع البوت"""
+    keyboard = [[InlineKeyboardButton("📊 تحليل الأسواق", callback_data='market_analysis')],
+                [InlineKeyboardButton("📉 توصيات التداول", callback_data='trading_signals')],
+                [InlineKeyboardButton("📢 آخر الأخبار الاقتصادية", callback_data='latest_news')],
+                [InlineKeyboardButton("🔔 تنبيهات الأسعار", callback_data='price_alerts')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("مرحبًا بك في SA Forex AI! كيف يمكنني مساعدتك؟", reply_markup=reply_markup)
+
+def get_openai_response(text):
+    """إرسال استفسارات إلى ChatGPT"""
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "system", "content": "أنت مساعد خبير في التداول."},
+                  {"role": "user", "content": text}]
+    )
+    return response['choices'][0]['message']['content']
+
+def handle_message(update: Update, context: CallbackContext) -> None:
+    """الرد على استفسارات المستخدم"""
+    user_message = update.message.text
+    response = get_openai_response(user_message)
+    update.message.reply_text(response)
+
+def fetch_market_news():
+    """جلب آخر الأخبار الاقتصادية"""
+    url = f"https://newsapi.org/v2/everything?q=forex&language=ar&apiKey={NEWSAPI_API_KEY}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        articles = response.json().get("articles", [])
+        if articles:
+            return {"headline": articles[0]["title"], "summary": articles[0]["description"]}
+    return {"error": "تعذر جلب الأخبار"}
+
+def market_news(update: Update, context: CallbackContext) -> None:
+    """إرسال آخر الأخبار المالية"""
+    news = fetch_market_news()
+    if "error" in news:
+        update.message.reply_text(news["error"])
+    else:
+        update.message.reply_text(f"📰 آخر الأخبار: {news['headline']}\n{news['summary']}")
+
+def fetch_market_data(symbol):
+    """جلب بيانات السوق باستخدام Alpha Vantage"""
+    fx = ForeignExchange(key=ALPHA_VANTAGE_API_KEY)
+    data, _ = fx.get_currency_exchange_rate(from_currency=symbol[:3], to_currency=symbol[3:])
+    if "5. Exchange Rate" in data:
+        return {"price": float(data["5. Exchange Rate"]), "trend": "غير متاح"}
+    return {"error": "تعذر جلب بيانات السوق"}
+
+def market_analysis(update: Update, context: CallbackContext) -> None:
+    """تحليل الأسواق المالية"""
+    symbol = "EURUSD"  # يمكن تغييره لاحقًا لجعله ديناميكيًا
+    data = fetch_market_data(symbol)
+    if "error" in data:
+        update.message.reply_text(data["error"])
+    else:
+        update.message.reply_text(f"📊 تحليل {symbol}:\nالسعر الحالي: {data['price']}\nاتجاه السوق: {data['trend']}")
+
+def price_alert(update: Update, context: CallbackContext) -> None:
+    """إعداد تنبيهات الأسعار"""
+    update.message.reply_text("🔔 قم بإرسال السعر المستهدف مع رمز العملة (مثلاً: 1.2000 EURUSD)")
+    # هنا يمكن إضافة منطق لتخزين التنبيهات وتنفيذها لاحقًا
+
+def main():
+    """تشغيل البوت"""
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
     
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-    except Exception as e:
-        logging.error(f"خطأ أثناء جلب الصفحة: {e}")
-        return []
-
-    events = []
-    rows = soup.find_all("tr", class_="js-event-item")
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    dp.add_handler(CommandHandler("news", market_news))
+    dp.add_handler(CommandHandler("analysis", market_analysis))
+    dp.add_handler(CommandHandler("alert", price_alert))
     
-    for row in rows:
-        try:
-            event_time = row.find("td", class_="first left time js-time")
-            event_time = event_time.text.strip() if event_time else "غير محدد"
+    updater.start_polling()
+    updater.idle()
 
-            event_name = row.find("td", class_="left event")
-            event_name = event_name.text.strip() if event_name else "غير محدد"
-
-            event_country = row.find("td", class_="flagCur")
-            event_country = "الولايات المتحدة" if event_country and "United_States" in event_country.get("class", []) else "غير محدد"
-
-            event_impact = row.find("td", class_="left textNum sentiment noWrap")
-            event_impact = event_impact.text.strip() if event_impact else "غير محدد"
-            
-            if event_country == "الولايات المتحدة":
-                events.append({'time': event_time, 'name': event_name, 'impact': event_impact})
-        except Exception as e:
-            logging.error(f"خطأ في تحليل الحدث: {e}")
-            continue
-    
-    return events
-
-# دالة لتحليل الوقت من تنسيق الحدث
-def parse_event_time(event_time_str):
-    try:
-        return datetime.strptime(event_time_str, "%I:%M %p")
-    except Exception as e:
-        logging.warning(f"التنسيق غير صالح للوقت: {event_time_str} - {e}")
-        return None
-
-# دالة لإرسال الأحداث إلى قناة تيليجرام
-async def send_event_to_channel(bot: Bot, event):
-    try:
-        message = f"\U0001F4C5 الحدث: {event['name']}\n⏰ التوقيت: {event['time']}\n\U0001F6A8 التأثير: {event['impact']}\n"
-        await bot.send_message(chat_id=CHANNEL_ID, text=message)
-        logging.info(f"تم إرسال الحدث: {event['name']} إلى القناة")
-    except Exception as e:
-        logging.error(f"خطأ في إرسال الحدث {event['name']}: {e}")
-
-# دالة جدولة إرسال الأحداث قبل 15 دقيقة من موعدها
-async def schedule_events(bot: Bot):
-    while True:
-        events = fetch_economic_events()
-        logging.info(f"تم جلب {len(events)} حدثًا اقتصاديًا")
-        now = datetime.now(TIMEZONE)
-
-        for event in events:
-            event_time = parse_event_time(event['time'])
-            if event_time:
-                event_time = event_time.replace(year=now.year, month=now.month, day=now.day)
-                time_diff = event_time - timedelta(minutes=15)
-                if now >= time_diff and now <= event_time:
-                    logging.info(f"إرسال الحدث: {event['name']} في التوقيت المحدد")
-                    await send_event_to_channel(bot, event)
-
-        await asyncio.sleep(60)  # التحقق كل دقيقة
-
-# دالة بدء البوت
-async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text("✅ تم تشغيل البوت بنجاح! سيتم إرسال الأحداث الاقتصادية تلقائيًا.")
-    bot = context.bot
-    events = fetch_economic_events()
-    logging.info(f"تم جلب {len(events)} حدثًا اقتصاديًا")
-    
-    for event in events:
-        await send_event_to_channel(bot, event)
-
-# تشغيل البوت
-async def main():
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    
-    bot = Bot(TOKEN)
-
-    loop = asyncio.get_running_loop()  # استخدام get_running_loop بدلاً من run
-    loop.create_task(schedule_events(bot))  # تشغيل الجدولة دون إيقاف الحدث الرئيسي
-
-    logging.info("✅ البوت يعمل بنجاح!")
-    await application.run_polling()  # بدء العمل مع البوت
-
-if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(main())  # تشغيل `main()` داخل الحلقة الحالية
+if __name__ == '__main__':
+    main()
