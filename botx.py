@@ -1,97 +1,94 @@
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-import openai
 import requests
-from alpha_vantage.foreignexchange import ForeignExchange
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+import pytz
+import logging
+import telegram
+import time
 
-# إعدادات البوت
-TOKEN = "8199102034:AAFcguhaf_J36XgM4avtO--pppKBZvEyX38"
-ALPHA_VANTAGE_API_KEY = "QOHNYLST38AYFCLD"
-NEWSAPI_API_KEY = "9707513d693d4eaeafd3e13b70b322ae"
+# إعدادات تيليجرام
+BOT_TOKEN = '7731023681:AAHNztczvrywAK0ZDGAKC1vqdW82eG-TpUQ'
+CHANNEL_ID = '@testbotseaf'
 
-openai.api_key = "YOUR_OPENAI_API_KEY"
+# التوقيت المحلي (مثلاً توقيت السعودية)
+TIMEZONE = pytz.timezone("Asia/Riyadh")
 
-# تهيئة تسجيل الأخطاء
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# تهيئة البوت
+bot = telegram.Bot(token=BOT_TOKEN)
 
-def start(update: Update, context: CallbackContext) -> None:
-    """الرد عند بدء المحادثة مع البوت"""
-    keyboard = [[InlineKeyboardButton("📊 تحليل الأسواق", callback_data='market_analysis')],
-                [InlineKeyboardButton("📉 توصيات التداول", callback_data='trading_signals')],
-                [InlineKeyboardButton("📢 آخر الأخبار الاقتصادية", callback_data='latest_news')],
-                [InlineKeyboardButton("🔔 تنبيهات الأسعار", callback_data='price_alerts')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("مرحبًا بك في SA Forex AI! كيف يمكنني مساعدتك؟", reply_markup=reply_markup)
+# سجل الأخبار المُرسلة لتجنب التكرار
+sent_news = set()
 
-def get_openai_response(text):
-    """إرسال استفسارات إلى ChatGPT"""
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "system", "content": "أنت مساعد خبير في التداول."},
-                  {"role": "user", "content": text}]
-    )
-    return response['choices'][0]['message']['content']
+def fetch_usd_news():
+    url = "https://sa.investing.com/economic-calendar/"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
 
-def handle_message(update: Update, context: CallbackContext) -> None:
-    """الرد على استفسارات المستخدم"""
-    user_message = update.message.text
-    response = get_openai_response(user_message)
-    update.message.reply_text(response)
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.content, 'html.parser')
 
-def fetch_market_news():
-    """جلب آخر الأخبار الاقتصادية"""
-    url = f"https://newsapi.org/v2/everything?q=forex&language=ar&apiKey={NEWSAPI_API_KEY}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        articles = response.json().get("articles", [])
-        if articles:
-            return {"headline": articles[0]["title"], "summary": articles[0]["description"]}
-    return {"error": "تعذر جلب الأخبار"}
+    news_list = []
 
-def market_news(update: Update, context: CallbackContext) -> None:
-    """إرسال آخر الأخبار المالية"""
-    news = fetch_market_news()
-    if "error" in news:
-        update.message.reply_text(news["error"])
-    else:
-        update.message.reply_text(f"📰 آخر الأخبار: {news['headline']}\n{news['summary']}")
+    rows = soup.select('tr.js-event-item')
+    for row in rows:
+        currency = row.get('data-event-currency', '')
+        impact = row.get('data-impact', '')
+        if currency != 'USD' or impact not in ['2', '3']:  # 2 = متوسط، 3 = قوي
+            continue
 
-def fetch_market_data(symbol):
-    """جلب بيانات السوق باستخدام Alpha Vantage"""
-    fx = ForeignExchange(key=ALPHA_VANTAGE_API_KEY)
-    data, _ = fx.get_currency_exchange_rate(from_currency=symbol[:3], to_currency=symbol[3:])
-    if "5. Exchange Rate" in data:
-        return {"price": float(data["5. Exchange Rate"]), "trend": "غير متاح"}
-    return {"error": "تعذر جلب بيانات السوق"}
+        # وقت وتاريخ الحدث
+        time_str = row.get('data-event-datetime', '')
+        if not time_str:
+            continue
 
-def market_analysis(update: Update, context: CallbackContext) -> None:
-    """تحليل الأسواق المالية"""
-    symbol = "EURUSD"  # يمكن تغييره لاحقًا لجعله ديناميكيًا
-    data = fetch_market_data(symbol)
-    if "error" in data:
-        update.message.reply_text(data["error"])
-    else:
-        update.message.reply_text(f"📊 تحليل {symbol}:\nالسعر الحالي: {data['price']}\nاتجاه السوق: {data['trend']}")
+        event_time_utc = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+        event_time_local = event_time_utc.replace(tzinfo=pytz.utc).astimezone(TIMEZONE)
 
-def price_alert(update: Update, context: CallbackContext) -> None:
-    """إعداد تنبيهات الأسعار"""
-    update.message.reply_text("🔔 قم بإرسال السعر المستهدف مع رمز العملة (مثلاً: 1.2000 EURUSD)")
-    # هنا يمكن إضافة منطق لتخزين التنبيهات وتنفيذها لاحقًا
+        # عنوان الحدث
+        title = row.select_one('.event').get_text(strip=True)
 
-def main():
-    """تشغيل البوت"""
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-    dp.add_handler(CommandHandler("news", market_news))
-    dp.add_handler(CommandHandler("analysis", market_analysis))
-    dp.add_handler(CommandHandler("alert", price_alert))
-    
-    updater.start_polling()
-    updater.idle()
+        # تجاهل الأحداث اللي مر وقتها
+        now = datetime.now(TIMEZONE)
+        if now > event_time_local:
+            continue
+
+        # إذا باقي 15 دقيقة أو أقل، نجهز الرسالة
+        minutes_diff = (event_time_local - now).total_seconds() / 60
+        if 0 < minutes_diff <= 15:
+            news_id = f"{title}_{event_time_local.strftime('%Y%m%d%H%M')}"
+            if news_id not in sent_news:
+                sent_news.add(news_id)
+
+                impact_text = "قوي 🔥" if impact == '3' else "متوسط ⚠️"
+                date_str = event_time_local.strftime('%A، %d %B %Y')
+                time_str = event_time_local.strftime('%H:%M')
+
+                message = f"""📊 خبر اقتصادي قادم بعد قليل!
+
+🔹 العملة: USD 🇺🇸  
+🔹 الحدث: {title}  
+📅 التاريخ: {date_str}  
+⏰ الوقت: {time_str} بتوقيت مكة  
+📈 التأثير المتوقع: {impact_text}
+
+⏳ سيتم صدور الخبر خلال 15 دقيقة!
+"""
+                send_telegram_message(message)
+
+def send_telegram_message(message):
+    try:
+        bot.send_message(chat_id=CHANNEL_ID, text=message)
+        print("✅ تم إرسال الخبر")
+    except Exception as e:
+        print(f"❌ خطأ أثناء الإرسال: {e}")
 
 if __name__ == '__main__':
-    main()
+    print("🚀 البوت يعمل... سيتم التحقق من الأخبار كل ساعة")
+    while True:
+        try:
+            fetch_usd_news()
+        except Exception as e:
+            logging.exception("حدث خطأ أثناء جلب الأخبار")
+
+        time.sleep(3600)  # انتظار ساعة كاملة
